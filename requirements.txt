@@ -9,6 +9,7 @@ pycares==5.0.1
 pycparser==3.0
 python-dateutil==2.9.0.post0
 pyvmomi==9.1.1.0
+proxmoxer==2.3.0
 pyyaml==6.0.3
 requests==2.34.2
 setuptools==84.0.0

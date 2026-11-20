@@ -4,6 +4,7 @@ This is a tool to sync data from different sources to a NetBox instance.
 
 Available source types:
 * VMware vCenter Server
+* Proxmox VE
 * [bb-ricardo/check_redfish](https://github.com/bb-Ricardo/check_redfish) inventory files
 
 **IMPORTANT: READ INSTRUCTIONS CAREFULLY BEFORE RUNNING THIS PROGRAM**
@@ -38,6 +39,8 @@ This ensures stale objects are removed from NetBox keeping an accurate current s
 * VMWare vCenter >= 6.0
 #### Source: check_redfish (if used)
 * check_redfish >= 1.2.0
+#### Source: proxmox (if used)
+* Proxmox VE >= 6
 
 # Installing
 * here we assume we install in ```/opt```
@@ -291,6 +294,7 @@ Program will exit if all retries failed!
 Check out the documentations for the different sources
 * [vmware](https://github.com/bb-Ricardo/netbox-sync/blob/main/docs/source_vmware.md)
 * [check_redfish](https://github.com/bb-Ricardo/netbox-sync/blob/main/docs/source_check_redfish.md)
+* [proxmox](https://github.com/bb-Ricardo/netbox-sync/blob/main/docs/source_proxmox.md)
 
 ### Filtering
 netbox-sync provides various filtering capabilities to control what objects are synced from sources to NetBox:
