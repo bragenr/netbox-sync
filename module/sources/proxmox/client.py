@@ -27,6 +27,9 @@ class ProxmoxClient:
 
         from proxmoxer import ProxmoxAPI
 
+        if verify_ssl is False:
+            log.warning("SSL certificate verification for the Proxmox VE API endpoint is disabled")
+
         common_kwargs = dict(
             user=user,
             port=port,

@@ -7,9 +7,12 @@
 #  For a copy, see file LICENSE.txt included in this
 #  repository or visit <https://opensource.org/licenses/MIT>.
 
+from module.common.logging import get_logger
 from module.config import source_config_section_name
 from module.config.base import ConfigBase
 from module.config.option import ConfigOption
+
+log = get_logger()
 
 
 class ProxmoxConfig(ConfigBase):
@@ -118,3 +121,26 @@ class ProxmoxConfig(ConfigBase):
         ]
 
         super().__init__()
+
+    def validate_options(self):
+        """
+        Ensure the configured authentication is complete: either an API token
+        (token_name and token_value) or a password has to be defined.
+        """
+
+        get = lambda key: self.get_option_by_name(key).value
+
+        token_name = get("token_name")
+        token_value = get("token_value")
+        password = get("password")
+
+        if (token_name is None) != (token_value is None):
+            self.set_validation_failed()
+            log.error("Config options 'token_name' and 'token_value' in "
+                      f"'source.{getattr(self, 'source_name', None)}' must be defined together")
+
+        if token_name is None and password is None:
+            self.set_validation_failed()
+            log.error("Config options 'password' or 'token_name' and 'token_value' in "
+                      f"'source.{getattr(self, 'source_name', None)}' are undefined. "
+                      "At least one authentication method has to be defined")

@@ -8,6 +8,7 @@
 #  repository or visit <https://opensource.org/licenses/MIT>.
 
 from module.common.logging import get_logger
+from module.common.support import normalize_mac_address
 from module.sources.common.source_base import SourceBase
 from module.sources.proxmox.client import ProxmoxClient
 from module.sources.proxmox.config import ProxmoxConfig
@@ -42,6 +43,22 @@ vm_status_map = {
     "stopped": "offline",
     "paused": "staged",
 }
+
+
+def to_int(value=None):
+    """
+    Robust conversion of a Proxmox API value to int.
+    The API returns numbers as int or as string (lxc configs), sometimes with
+    decimals (like memory: 512.5), which would crash a plain int() conversion.
+    """
+
+    if value in [None, ""]:
+        return 0
+
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 class ProxmoxHandler(SourceBase):
@@ -203,7 +220,10 @@ class ProxmoxHandler(SourceBase):
                 # -------- node interfaces --------
 
                 if self.settings.sync_node_network is True:
-                    self.sync_node_network(device, node_name)
+                    try:
+                        self.sync_node_network(device, node_name)
+                    except Exception as e:
+                        self.log.error(f"Unable to sync network of node '{node_name}': {e}")
 
         # ---------------------------
         # guest loop
@@ -218,7 +238,7 @@ class ProxmoxHandler(SourceBase):
             for guest in self.client.get_vms(node=node_name):
 
                 # skip VM templates
-                if int(guest.get("template", 0) or 0) == 1:
+                if to_int(guest.get("template")) == 1:
                     self.log.debug2(f"Skipping Proxmox VM template '{guest.get('name')}'")
                     continue
 
@@ -242,12 +262,14 @@ class ProxmoxHandler(SourceBase):
                     "cluster": cluster,
                     "site": site,
                     "platform": self.get_platform("Proxmox VE" if guest.get("vm_type") == "qemu" else "LXC Container"),
-                    "vcpus": float(vm_config.get("cores", guest.get("cpus", 0)) or 0),
-                    "memory": int(vm_config.get("memory", int(guest.get("maxmem", 0)) / 1024 / 1024) or 0),
+                    "vcpus": float(to_int(vm_config.get("cores", guest.get("cpus"))) or 0),
+                    "memory": to_int(vm_config.get("memory", to_int(guest.get("maxmem")) / 1024 / 1024)),
                 }
 
                 if node_devices.get(node_name) is not None:
                     vm_data["device"] = node_devices.get(node_name)
+
+                vm_data = {key: value for key, value in vm_data.items() if value is not None}
 
                 vm = self.inventory.add_update_object(
                     NBVM,
@@ -295,11 +317,14 @@ class ProxmoxHandler(SourceBase):
                 "device": device,
                 "enabled": True,
                 "type": "virtual",
-                "description": "bridge" if node_interface.get("type") == "bridge" else None,
             }
 
-            if node_interface.get("hwaddr") is not None:
-                interface_data["mac_address"] = node_interface.get("hwaddr")
+            if node_interface.get("type") == "bridge":
+                interface_data["description"] = "bridge"
+
+            node_mac = normalize_mac_address(node_interface.get("hwaddr"))
+            if node_mac is not None:
+                interface_data["mac_address"] = node_mac
 
             interface = self.inventory.add_update_object(
                 NBInterface,

@@ -272,3 +272,115 @@ def test_parse_disk_size():
     assert parse_disk_size(None) is None
     assert parse_disk_size("") is None
     assert parse_disk_size("123") is None
+
+
+def test_proxmox_config_auth_validation(load_config):
+    """
+    Partial token definitions or missing auth must fail config validation
+    instead of crashing the source during apply()
+    """
+
+    from module.sources.proxmox.config import ProxmoxConfig
+
+    def parse_source(section: dict):
+        content = "[netbox]\nurl = https://netbox.example.com\napi_token = xxx\n[source/my-pve]\n"
+        content += "\n".join(f"{key} = {value}" for key, value in section.items())
+        load_config(content)
+
+        config = ProxmoxConfig()
+        config.source_name = "my-pve"
+        try:
+            config.parse()
+        except SystemExit:
+            # failed validation exits the program, the test only cares
+            # about the parsing result
+            pass
+        return config
+
+    # only token_name defined -> validation must fail
+    config = parse_source({
+        "type": "proxmox",
+        "host": "pve.example.com",
+        "user": "root@pam",
+        "token_name": "sync",
+    })
+    assert config._parsing_failed is True
+
+    # token_name and token_value defined -> validation must pass
+    config = parse_source({
+        "type": "proxmox",
+        "host": "pve.example.com",
+        "user": "root@pam",
+        "token_name": "sync",
+        "token_value": "abcd-1234",
+    })
+    assert config._parsing_failed is False
+
+    # password only -> validation must pass
+    config = parse_source({
+        "type": "proxmox",
+        "host": "pve.example.com",
+        "user": "root@pam",
+        "password": "secret",
+    })
+    assert config._parsing_failed is False
+
+    # no auth at all -> validation must fail
+    config = parse_source({
+        "type": "proxmox",
+        "host": "pve.example.com",
+        "user": "root@pam",
+    })
+    assert config._parsing_failed is True
+
+
+def test_proxmox_string_api_values(proxmox_handler, inventory, monkeypatch):
+    """
+    The Proxmox API returns numbers as strings (lxc configs) and sometimes
+    with decimals. The sync must not crash on those.
+    """
+
+    # lxc config with all string values and a decimal memory value
+    monkeypatch.setattr(
+        proxmox_handler.client, "get_vm_config",
+        lambda node=None, vm_id=None, vm_type=None: {
+            "cores": "4", "memory": "512.5",
+            "rootfs": "local-lvm:vm-200-disk-0,size=8G",
+        },
+    )
+    monkeypatch.setattr(
+        proxmox_handler.client, "get_vms",
+        lambda node=None: [{
+            "vmid": "200", "name": "container-01", "status": "running",
+            "maxmem": "1073741824", "maxdisk": "8589934592", "cpus": "1",
+            "template": "0", "vm_type": "lxc",
+        }],
+    )
+
+    proxmox_handler.apply()
+
+    vm = get_inventory_items(inventory, NBVM, name="container-01")
+    assert len(vm) == 1
+    assert vm[0].data.get("vcpus") == 4.0
+    assert vm[0].data.get("memory") == 512  # 512.5 MB rounded down, no crash
+
+    disks = get_inventory_items(inventory, NBVirtualDisk, virtual_machine=vm[0])
+    assert len(disks) == 1
+    assert disks[0].data.get("size") == 8 * 1024
+
+    # VMs marked as templates (also as string) are skipped
+    monkeypatch.setattr(
+        proxmox_handler.client, "get_vms",
+        lambda node=None: [{
+            "vmid": "500", "name": "gold-image", "status": "stopped",
+            "template": "1", "vm_type": "qemu",
+        }],
+    )
+
+    inv = proxmox_handler.inventory
+    inv.base_structure = {}
+    inv.source_list = []
+    inv.init()
+
+    proxmox_handler.apply()
+    assert get_inventory_items(inventory, NBVM, name="gold-image") == []

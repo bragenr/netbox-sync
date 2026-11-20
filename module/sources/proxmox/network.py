@@ -94,14 +94,18 @@ def sync_vm_network(handler, vm, guest, vm_config):
 
         interface_name = interface_config.get("name") or net_key.replace("net", "eth")
 
+        interface_data = {
+            "name": interface_name[:64],
+            "virtual_machine": vm,
+            "enabled": True,
+        }
+
+        if interface_config.get("bridge") is not None:
+            interface_data["description"] = f"bridge: {interface_config.get('bridge')}"[:200]
+
         interface = inventory.add_update_object(
             NBVMInterface,
-            data={
-                "name": interface_name[:64],
-                "virtual_machine": vm,
-                "enabled": True,
-                "description": "bridge: %s" % interface_config.get("bridge") if interface_config.get("bridge") else None,
-            },
+            data=interface_data,
             source=handler,
         )
 
